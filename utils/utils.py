@@ -13,6 +13,8 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 import matplotlib.pyplot as plt
 
+from sklearn.neighbors import NearestNeighbors
+
 
 def mal(x, mu, sigma):
     m_dist_x = np.dot((x - mu).transpose(), np.linalg.inv(sigma))
@@ -462,4 +464,19 @@ def generate_dataset(x_train, y_train, img_id, k=40, alpha=0.35):
     dataset = np.append(anomalous_points, normal_points, axis=0)
     labels = np.append(np.ones(anomalous_points.shape[0]), np.zeros(normal_points.shape[0]), axis=0)
     return dataset, labels
+
+
+def outliers_nighbourhood(x_train, y_train, no):
+    near_neigh = NearestNeighbors(n_neighbors=no)
+    near_neigh.fit(x_train[y_train == 0])
+    
+    nn_points = {}
+    
+    for ete in np.argwhere(y_train==1):  
+        _, y_normal = near_neigh.kneighbors(x_train[ete])
+        x_normal = x_train[y_train == 0][y_normal[0]]
+        #mm_data_o = np.full_like(x_normal, fill_value=x_train[outliers[best_s][0]][0])
+        nn_points[ete[0]] = x_normal
+
+    return nn_points
 

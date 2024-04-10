@@ -9,10 +9,10 @@ from tensorflow.keras.layers import Input, Dense, Add, Multiply, Activation, Con
 import numpy as np
 
 
-class TabularMM(MaskingModelExplainer):
+class TabularMM_groups(MaskingModelExplainer):
 
     def __init__(self, in_shape, normal_data, loss_weights):
-        super(TabularMM, self).__init__(loss_weights)
+        super(TabularMM_groups, self).__init__(loss_weights)
         self.buildExplanator(in_shape)
 
         differences = (- normal_data[:, np.newaxis, :] + normal_data[np.newaxis, :, :])**2
@@ -35,7 +35,7 @@ class TabularMM(MaskingModelExplainer):
         #num_unit = 64 * (in_shape//30 + 1)
         #num_unit = 32 * (in_shape//10) # 2**((in_shape//10)-1)
         # 23/03/2023
-        num_unit = in_shape * 4 #3
+        num_unit = in_shape * 3 #4
         print(num_unit)
 
         input_o = Input(in_shape)
@@ -76,10 +76,10 @@ class TabularMM(MaskingModelExplainer):
         img_i = keras.Input(shape=in_shape)
         
         # --------------------------------
-        num_unit = in_shape * 4
-        x1 = Dense(num_unit, activation='relu')(img_o)
-        x1 = Dense(1, activation=lambda x: 1/(1+tf.math.exp(-3*x)))(x1)
-        self.WEIGHTS = keras.Model(inputs=[img_o], outputs=[x1])
+        #num_unit = in_shape * 4
+        #x1 = Dense(num_unit, activation='relu')(img_o)
+        #x1 = Dense(1, activation=lambda x: 1/(1+tf.math.exp(-3*x)))(x1)
+        #self.WEIGHTS = keras.Model(inputs=[img_o], outputs=[x1])
         # --------------------------------
 
         self.defineMaskGen(in_shape)
@@ -94,52 +94,42 @@ class TabularMM(MaskingModelExplainer):
         return
 
     def train_step(self, data):
-        x, y = data         # y --> normal data
-        data_o = x[0]
-        data_i = x[1]
+        x, y = data
 
         with tf.GradientTape() as tape:
              
-            w = self.WEIGHTS(data_o)
-            patches, mask, choose = self.PATCH([data_o, data_i])
-            #print(choose)
-
-            ndim_loss = tf.sqrt(tf.reduce_sum(choose ** 2, axis=1))
-
-            differences = (- data_o + data_i) #/ np.sqrt(data_o.shape[1])
-            #print(differences)
-            differences_red = tf.reduce_sum((differences ** 2) * (choose ** 2), axis=1)
-            ## 25/04/2023 inserita radice quadrata
-            #sample_distance = tf.sqrt(tf.reduce_sum(self.normal_dist * (choose * 2), axis=1) / (differences_red + 1e-4))
-            normal_dist = tf.sqrt(tf.reduce_sum(self.normal_dist * (choose), axis=1))
-            sample_distance = normal_dist / (differences_red + 1e-4)
+            #w = self.WEIGHTS(data_o)
+            patches, mask, choose = self.PATCH(x)
+            loss = self.compute_loss(x, patches, mask, choose)
+            #print(loss)
             
-            # 27/05/2023 aggiunto (* choose ) per vedere se così le machere diventano dipendenti dalla scelta
-            margin_n = tf.sqrt(tf.reduce_sum(((patches - data_i) ** 2) * choose, axis=1)) / np.sqrt(data_o.shape[1]) 
-            
-            # 08/05/2023 Modifica loss
-            #differences = self.normal_dist / (differences + 1e-6)
-            #print(differences)
-            #print(differences)
-            #print(choose)
-            #sample_distance = differences * (choose ** 2)
-            #sample_distance = tf.sqrt(tf.reduce_sum(sample_distance, axis=1))
-            
-            #print(tf.reduce_mean(margin_n), tf.reduce_mean(sample_distance), tf.reduce_mean(ndim_loss))
-            
-
-            #loss = tf.reduce_mean((1-w)+w*(self.loss_weights[0] * margin_n +
-            #                      self.loss_weights[1] * sample_distance +
-            #                      self.loss_weights[2] * ndim_loss))
-            
-            loss = tf.reduce_mean(self.loss_weights[0] * margin_n +
-                                  self.loss_weights[1] * sample_distance +
-                                  self.loss_weights[2] * ndim_loss)
         gradients = tape.gradient(loss, self.PATCH.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.PATCH.trainable_variables))
 
         self.compiled_metrics.update_state(y, patches)
         return {m.name: m.result() for m in self.metrics}
+    
+    def loss_fn(self, data):
+        patches, mask, choose = self.PATCH(data)
+        return self.compute_loss(data, patches, mask, choose).numpy()
+    
+    def compute_loss(self, data, patches, mask, choose):
+        data_o = data[0]
+        data_i = data[1]
+        
+        ndim_loss = tf.sqrt(tf.reduce_sum(choose ** 2, axis=1))
+        margin_n = tf.sqrt(tf.reduce_sum(((patches - data_i) ** 2) * choose, axis=1)) / np.sqrt(data_o.shape[1]) 
+        differences = (- data_o + data_i)
+        differences_red = tf.reduce_sum((differences ** 2) * (choose ** 2), axis=1)
+        normal_dist = tf.sqrt(tf.reduce_sum(self.normal_dist * (choose), axis=1))
+        sample_distance = normal_dist / (differences_red + 1e-4)
+        
+        loss = tf.reduce_mean(self.loss_weights[0] * margin_n +
+                              self.loss_weights[1] * sample_distance +
+                              self.loss_weights[2] * ndim_loss)
+        
+        return loss
+        
 
     # 24/03/2023 per testare cosa succede se abbassiamo la threshold
     def explain(self, sample, threshold=0.7, acceptance_ratio=0.5, combine=True):
@@ -156,6 +146,7 @@ class TabularMM(MaskingModelExplainer):
             choose = np.where(np.mean(choose, axis=0)>acceptance_ratio, 1, 0)
             patches = self.MASKAPPLY([sample[0][0:1], mask, choose])
         else:
+            #print(choose.numpy()[:2])
             choose = np.where(choose.numpy() > threshold, 1, 0)
             patches = self.MASKAPPLY([sample[0], mask, choose])
 

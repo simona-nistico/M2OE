@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 from time import time
 
 from explainers.logger_utils import time_format
-from tests.test_HiCS_procedure_sg import run_test
+from tests.test_HiCS_procedure_sg_os import run_test
 from utils.argument_parser import RealRuns
 
 
@@ -18,7 +18,7 @@ if __name__ == '__main__':
     conf = conf(ArgumentParser())
     args = conf.parse_args()
 
-    path = f"tests/logs/test_hics_groups_sg_ie_nl_50"
+    path = f"tests/logs/test_hics_groups_sg_os_{vars(args)['loss_weights'][2]}"
     os.mkdir(path)
 
     with open(os.path.join(path, 'conf.txt'), 'w') as f:

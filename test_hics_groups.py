@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 from time import time
 
 from explainers.logger_utils import time_format
-from tests.RealDatasets import run_test
+from tests.test_HiCS_procedure import run_test
 from utils.argument_parser import RealRuns
 
 
@@ -18,7 +18,7 @@ if __name__ == '__main__':
     conf = conf(ArgumentParser())
     args = conf.parse_args()
 
-    path = f"tests/logs/{vars(args)['dataset']}_{time()}"
+    path = f"tests/logs/test_hics_groups"
     os.mkdir(path)
 
     with open(os.path.join(path, 'conf.txt'), 'w') as f:
