@@ -480,3 +480,18 @@ def outliers_nighbourhood(x_train, y_train, no):
 
     return nn_points
 
+
+def extract_infos(subpath, k):
+    couples = pickle.load(open(os.path.join(subpath, 'couples.joblib'), 'rb'))
+    explanations = np.array(pickle.load(open(os.path.join(subpath, 'explanations.joblib'), 'rb')))
+    selected = pickle.load(open(os.path.join(subpath, 'selected.joblib'), 'rb'))
+    outliers = np.array(pickle.load(open(os.path.join(subpath, 'outliers.joblib'), 'rb')))
+
+    k1 = k-1
+
+    # Extract the outliers and the explanations for the k groups
+    groups = list(set(range(len(outliers)-k1)).difference(set(selected[:len(selected)-k1*2])))
+    out_groups = outliers[groups]
+    exp_groups = explanations[groups]
+
+    return groups, out_groups, exp_groups
