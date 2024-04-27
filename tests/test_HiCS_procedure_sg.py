@@ -83,7 +83,8 @@ def run_test(path, **kwargs):
             explanations = []
             explainers = []
             outliers = []
-            ifClassifiers = []
+            
+            nn_points = outliers_nighbourhood(x_train, y_train, no)
 
             print('Base explainers')
             for ete in np.argwhere(data['class'].to_numpy() == ac):
@@ -95,8 +96,7 @@ def run_test(path, **kwargs):
                 #y_train_sub = np.append(y_train_sub, [1.], axis=0)
 
                 # -------------------- Try with more samples ---------------------------
-                _, y_normal = near_neigh.kneighbors(x_train[ete])
-                x_normal = x_train[y_train == 0][y_normal[0]]
+                x_normal = nn_points[ete[0]]
                 print('SHAPE: ', x_normal.shape)
 
                 mm_data_o = np.full_like(x_normal, fill_value=x_train[ete])
@@ -113,14 +113,11 @@ def run_test(path, **kwargs):
                 _, choose = explainer.explain([mm_data[0], mm_data[1]], threshold, combine=False)
                 choose = choose[0]
                 feats = np.argwhere(choose>0).reshape(-1)
-                ifs = IForest()
-                ifs.fit(x_train[:, feats])
 
                 base_explanations.append(explainer)
                 explainers.append(explainer)
                 explanations.append(choose)
                 outliers.append(ete)
-                ifClassifiers.append(ifs)
                 selected = []
                 couples = []
 
@@ -132,10 +129,20 @@ def run_test(path, **kwargs):
                 for s in range(len(outliers)):
                     for j in range(len(outliers)):
                         if s != j and (s not in selected) and (j not in selected):
-                            feats = np.argwhere(explanations[s]>0).reshape(-1)
-                            score = - ifClassifiers[s].score_samples(x_train[outliers[j]][:,feats]).mean()
+                            x_normal = nn_points[outliers[j][0]]
+                            mm_data_o = np.full_like(x_normal, fill_value=x_train[outliers[j][0]][0])
+                            mm_data_i = x_normal
+
+                            for op in range(1, len(outliers[j])):
+                                x_normal = nn_points[outliers[j][op]]
+
+                                mm_data_o = np.append(mm_data_o, np.full_like(x_normal, x_train[outliers[j][op]]), axis=0)
+                                mm_data_i = np.append(mm_data_i, x_normal, axis=0)
+                            mm_data = [mm_data_o, mm_data_i]
+                            
+                            score = explainers[s].loss_fn(mm_data)
                             #print('----', s, j, score)
-                            if score > best_fit:
+                            if score < best_fit or best_fit == -1:
                                 best_fit = score
                                 best_s = s
                                 best_j = j
@@ -148,24 +155,18 @@ def run_test(path, **kwargs):
                 selected.append(best_j)
 
                 # Resume explanation training
-                _, y_normal = near_neigh.kneighbors(x_train[outliers[best_s][0:1]])
-                x_normal = x_train[y_train == 0][y_normal[0]]
+                x_normal = nn_points[outliers[best_s][0]]
                 mm_data_o = np.full_like(x_normal, fill_value=x_train[outliers[best_s][0]][0])
                 mm_data_i = x_normal
 
                 for op in range(1, len(outliers[best_s])):
-                    _, y_normal = near_neigh.kneighbors(x_train[outliers[best_s][op:op+1]])
-                    x_normal = x_train[y_train == 0][y_normal[0]]
-                    #print('SHAPE: ', x_normal.shape)
+                    x_normal = nn_points[outliers[best_s][op]]
 
                     mm_data_o = np.append(mm_data_o, np.full_like(x_normal, x_train[outliers[best_s][op]]), axis=0)
                     mm_data_i = np.append(mm_data_i, x_normal, axis=0)
-                #mm_data = [mm_data_o, mm_data_i]
 
                 for op in range(len(outliers[best_j])):
-                    _, y_normal = near_neigh.kneighbors(x_train[outliers[best_j][op:op+1]])
-                    x_normal = x_train[y_train == 0][y_normal[0]]
-                    #print('SHAPE: ', x_normal.shape)
+                    x_normal = nn_points[outliers[best_j][op]]
 
                     mm_data_o = np.append(mm_data_o, np.full_like(x_normal, x_train[outliers[best_j][op]]), axis=0)
                     mm_data_i = np.append(mm_data_i, x_normal, axis=0)
@@ -173,21 +174,17 @@ def run_test(path, **kwargs):
                 mm_data = [mm_data_o, mm_data_i]
                 #print(f'MM_DATA SHAPE: {mm_data_o.shape}')
 
-                # Deep copy of the explainer
+                # Train explainer from scratch
                 explainer = AETabularMMmd_ae.TabularMM(in_shape, x_train[y_train == 0], loss_weights)
                 explainer.compile(optimizer=opt, run_eagerly=True)
-                explainer.set_weights(explainers[best_s].get_weights())
                 explainer.fit(mm_data, mm_data_i, batch_size=batch_exp, epochs=(r//10)*epochs_exp, verbose=0)
                 _, choose = explainer.explain([mm_data[0], mm_data[1]], threshold, combine=False)
                 choose = choose[0]
                 feats = np.argwhere(choose>0).reshape(-1)
-                ifs = IForest()
-                ifs.fit(x_train[:, feats])
 
                 explainers.append(explainer)
                 explanations.append(choose)
                 outliers.append(np.append(outliers[best_s], outliers[best_j], axis=0))
-                ifClassifiers.append(ifs)
                 
 
             
@@ -198,7 +195,6 @@ def run_test(path, **kwargs):
             pickle.dump(explanations, open(os.path.join(subpath, 'explanations.joblib'), 'wb'))
             pickle.dump(selected, open(os.path.join(subpath, 'selected.joblib'), 'wb'))
             pickle.dump(outliers, open(os.path.join(subpath, 'outliers.joblib'), 'wb'))
-            pickle.dump(ifClassifiers, open(os.path.join(subpath, 'ifClassifiers.joblib'), 'wb'))
 
             for i in range(len(explainers)):
                 explainers[i].save_weights(os.path.join(subpath, f'exp_{i}.hdf5'))
